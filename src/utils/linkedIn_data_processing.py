@@ -1,28 +1,40 @@
-import pandas as pd
-from pandas import DataFrame
 import json
-from typing import Any
-from llm_clients import llm
 import re
+from typing import Any
+
+import pandas as pd
+
 from src.utils.embedder import Embedder
 
+# This module processes raw LinkedIn export data into JSON.
+# It extracts relevant fields for content generation and adds
+# embeddings for few-shot prompting / semantic retrieval.
+
 def doc_to_json(doc_file: str, json_file: str) -> None:
-    df : pd.DataFrame = pd.read_excel(doc_file, sheet_name="All posts", skiprows=1)
+    df : pd.DataFrame = pd.read_excel(
+        doc_file, 
+        sheet_name="All posts", 
+        skiprows=1
+    )
 
     # rename columns (for easier usage)
-    df = df.rename(columns={"Post title": "text",
-                            "Post link" : "url",
-                            "Post type": "post_type",
-                            "Created date": "created_date",
-                            "Impressions": "impressions",
-                            "Clicks": "clicks",
-                            "Likes": "likes",
-                            "Comments": "comments",
-                            "Reposts": "reposts",
-                            "Engagement rate": "engagement_rate"})
+    df = df.rename(columns={
+        "Post title": "text",
+        "Post link" : "url",
+        "Post type": "post_type",
+        "Created date": "created_date",
+        "Impressions": "impressions",
+        "Clicks": "clicks",
+        "Likes": "likes",
+        "Comments": "comments",
+        "Reposts": "reposts",
+        "Engagement rate": "engagement_rate"
+    })
     
     df = df.fillna(0)
-    records: list[dict] = df.to_dict(orient="records")
+    df = df.drop_duplicates(subset=["text"])
+
+    records: list[dict[str, Any]] = df.to_dict(orient="records")
 
     with open(json_file, "w") as file:
         json.dump(records, file, indent=2)
@@ -30,32 +42,31 @@ def doc_to_json(doc_file: str, json_file: str) -> None:
     print(f"Saved processed data to {json_file}")
 
 def process_posts(json_file: str, processed_json_file: str) -> None:
-    enriched_posts = []
+    embedder: Embedder = Embedder()
+    enriched_posts: list[dict[str, Any]] = []
 
     with open(json_file, encoding="utf-8") as file:
-        posts = json.load(file)
-        embedder = Embedder()
-
-        for i, post in enumerate(posts, 1):
+        posts: list[dict[str, Any]] = json.load(file)
+        
+        for i, post in enumerate(posts, start=1):
             # Keep relevant fields 
-            clean_post = {"id": i,
-                          "text": post["text"],
-                          "post_type": post["post_type"],
-                          "created_date": post["created_date"],
-                          "line_count": post["text"].count("\n") + 1,
-                           "tags": re.findall(r"#\w+", post["text"])
-                          }
-            
-            # add embeddings (for few shot learning)
-            clean_post["embedding"] = embedder.embed_text(post["text"])
+            text: str = post.get("text", "")
+            clean_post: dict[str, Any] = {
+                "id": i,
+                "text": text,
+                "post_type": post.get("post_type"),
+                "created_date": post.get("created_date"),
+                "line_count": text.count("\n") + 1,
+                "tags": re.findall(r"#\w+", text),
+                "embedding": embedder.embed_text(text)
+            }
+        
             enriched_posts.append(clean_post)
     
     with open(processed_json_file, encoding="utf-8", mode="w") as outfile:
         json.dump(enriched_posts, outfile, indent=4)
 
     print(f"Saved enriched dataset to {processed_json_file}")
-
-
 
 if __name__ == "__main__":
     raw_file = "data/KickstartAI LinkedIn post year to date.xlsx"
@@ -66,4 +77,4 @@ if __name__ == "__main__":
     process_posts(json_file, processed_file)
 
 
-# python3 src.utils.linkedIn_data_processing
+# python3 -m src.utils.linkedIn_data_processing

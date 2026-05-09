@@ -1,32 +1,36 @@
-import pandas as pd
 import json
+from typing import Any
+
 import numpy as np
+import pandas as pd
+
 from src.utils.embedder import Embedder
 
-# This section is about developing a few shot system that will
-# retrieve relavant historical LinkedIn posts for few shot promting.
-
-# Here we convert the processed json of linkedIn posts into
-# pandas DataFrame, for ease of querying. We have implemented
-# hard querying (as of now based on length and tags), and also
-# soft querying - based on vector similarities between the interpreters
-# output and the embeddings of past LinkedIn posts
+# Few-shot retrieval system for LinkedIn posts.
+# Combines rule-based filtering (length + tags)
+# and semantic search (embedding similarity).
 
 class FewShotPost:
     def __init__(self, file_path="data/LinkedIn_processed_data.json") -> None:
-        self.df : pd.DataFrame = None
-        self.unique_tags = None
+        self.df: pd.DataFrame = pd.DataFrame()
+        self.unique_tags: set[str] = set()
         self.load_posts(file_path)
 
-    def load_posts(self, file_path):
+    def load_posts(self, file_path: str) -> None:
         with open(file_path, encoding="utf-8") as file:
-            posts = json.load(file)
-            self.df = pd.json_normalize(posts)
-            self.df["length"] = self.df["line_count"].apply(self.categorize_length)
-            all_tags: pd.Series = self.df["tags"].apply(lambda x: x).sum()
-            self.unique_tags: set = set(list(all_tags))
+            posts: list[dict[str, Any]] = json.load(file)
 
-    def categorize_length(self, line_count: int) -> str:
+        self.df = pd.json_normalize(posts)
+
+        # Categorize length
+        self.df["length"] = self.df["line_count"].apply(self.categorize_length)
+
+        # Extract unique tags
+        all_tags: list[str] = self.df["tags"].apply(lambda x: x).sum()
+        self.unique_tags = set(all_tags)
+
+    @staticmethod
+    def categorize_length(line_count: int) -> str:
         if line_count < 8:
             return "Short"
         elif 8 <= line_count <= 13:
@@ -34,18 +38,19 @@ class FewShotPost:
         else:
             return "Long"
 
-    def get_tags(self):
+    def get_tags(self) -> set[str]:
         return self.unique_tags
     
     # Rule based filtering: length + tag
     def get_filtered_posts(self, length: str, tag: str):
-        df_filtered = self.df[(self.df["length"]==length) &
-                              (self.df["tags"].apply(lambda tags: tag in tags))
+        df_filtered = self.df[
+            (self.df["length"]==length) &
+            (self.df["tags"].apply(lambda tags: tag in tags))
         ] 
         return df_filtered.to_dict(orient="records")
     
     # Semantics-based filtering
-    def get_similar_posts(self, query_embedding: list[int], top_k = 3):
+    def get_similar_posts(self, query_embedding: list[float], top_k = 3) -> list[dict[str, Any]]:
         """query_embedding: embedded output from the Interpreter"""
         df: pd.DataFrame = self.df.copy()
 
@@ -58,11 +63,15 @@ class FewShotPost:
 
         return top_posts.to_dict(orient="records")
     
-def cosine_similarity(a, b):
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     a = np.array(a)
     b = np.array(b)
     
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    denom = np.linalg.norm(a) * np.linalg.norm(b)
+    if denom == 0:
+        return 0.0
+
+    return float(np.dot(a, b) / denom)
 
 
 # Test    

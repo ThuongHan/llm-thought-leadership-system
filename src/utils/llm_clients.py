@@ -11,7 +11,7 @@ UVA_API_KEY = os.getenv("UVA_API_KEY")
 
 llm: AIMessage = ChatOpenAI(openai_api_base=api_endpoint,
                             api_key=UVA_API_KEY,
-                            model_name="gpt-4o-mini")
+                            model_name="gpt-5.1")
 
 # Test
 if __name__ == "__main__":
